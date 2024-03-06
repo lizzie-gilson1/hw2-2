@@ -103,18 +103,18 @@ void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int
         }
     }
 
-    // Exchange ghost particles with neighboring processes
-    int left_proc = (rank == 0) ? MPI_PROC_NULL : rank - 1;
-    int right_proc = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
+    // // Exchange ghost particles with neighboring processes
+    // int left_proc = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    // int right_proc = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
 
-    // Non-blocking communication for exchanging ghost particles
-    MPI_Request reqs[4];
-    MPI_Status stats[4];
-    MPI_Isend(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[0]);
-    MPI_Isend(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[1]);
-    MPI_Irecv(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[2]);
-    MPI_Irecv(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[3]);
-    MPI_Waitall(4, reqs, stats);
+    // // Non-blocking communication for exchanging ghost particles
+    // MPI_Request reqs[4];
+    // MPI_Status stats[4];
+    // MPI_Isend(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[0]);
+    // MPI_Isend(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[1]);
+    // MPI_Irecv(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[2]);
+    // MPI_Irecv(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[3]);
+    // MPI_Waitall(4, reqs, stats);
 }
 
 
