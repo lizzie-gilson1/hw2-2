@@ -77,9 +77,9 @@ void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int
     }
 
     // Determine the range of rows assigned to this MPI process 
-    int rows_per_proc = numRows/num_procs;
-    int start_row = rank*rows_per_proc;
-    int end_row = (rank == num_procs -1) ? numRows : ((rank + 1) * rows_per_proc);
+    int rows_per_proc = numRows / num_procs;
+    int start_row = rank * rows_per_proc;
+    int end_row = (rank == num_procs - 1) ? numRows : ((rank + 1) * rows_per_proc);
 
     // Assign particles to bins locally
     for (int i = 0; i < num_parts; i++) {
@@ -92,8 +92,13 @@ void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int
             if (x >= 0 && x < binCountX && y >= 0 && y < binCountY) {
                 int binIndex = x * binCountY + y;
                 ListNode* node = new ListNode(i);
-                node->next = bins[binIndex];
-                bins[binIndex] = node;
+                // Create a vector if the bin is empty
+                if (bins[binIndex].empty()) {
+                    bins[binIndex].emplace_back(node);
+                } else {
+                    // Append to the existing vector
+                    bins[binIndex].back()->next = node;
+                }
             }
         }
     }
