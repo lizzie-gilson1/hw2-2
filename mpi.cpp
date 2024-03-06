@@ -124,8 +124,6 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     // check openmp code and add MPI_Barrier
 
     // Compute forces with binning
-    int start = rank * num_parts / num_procs;
-    int end = (rank + 1) * num_parts / num_procs;
     for (int i = start; i < end; ++i) {
         parts[i].ax = parts[i].ay = 0;
         int binX = parts[i].x / binSize;
@@ -153,6 +151,7 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     }
 
 }
+
 
 void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
     // Gather all particles to root process (rank 0)
