@@ -1,19 +1,29 @@
 #include "common.h"
 #include <mpi.h>
+#include <iostream>
+#include <fstream>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
+// Define MPI Particle Type
+// MPI_Datatype PARTICLE;
+
+// Put any static global variables here that you will use throughout the simulation.
+// constexpr int MAX_PARTICLES = 1000;
+
+// Define a struct for linked list node
 struct ListNode {
     int index;
     ListNode* next;
     ListNode(int idx) : index(idx), next(nullptr) {}
 };
 
+// Global declaration of bins
+// std::array<std::array<ListNode*, MAX_PARTICLES>, MAX_PARTICLES> bins; // Use fixed-size array instead of vector
 std::vector<std::vector<ListNode*>> bins;
 int binCountX, binCountY; // Number of bins in each dimension
-double binSize = cutoff; 
-int totalSubRegions;
-int numRows, numCols;
+int binSize;
 
 // Apply the force from neighbor to particle
 void apply_force(particle_t& particle, particle_t& neighbor) {
@@ -35,7 +45,7 @@ void apply_force(particle_t& particle, particle_t& neighbor) {
     particle.ay += coef * dy;
 }
 
-//Integrate the ODE
+// Integrate the ODE
 void move(particle_t& p, double size) {
     // Slightly simplified Velocity Verlet integration
     // Conserves energy better than explicit Euler method
@@ -57,66 +67,54 @@ void move(particle_t& p, double size) {
 }
 
 void init_simulation(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // divide the space into bins of size cutoff-by-cutoff 
-    binCountX = size/cutoff;
-    binCountY = size/cutoff;
-    bins.resize(binCountX*binCountY); 
+    // You can use this space to initialize data objects that you may need
+    // This function will be called once before the algorithm begins
+    // Do not do any particle simulation here
 
-    int totalSubRegions = size/num_procs; 
-    numRows = totalSubRegions/binSize;
-    numCols = size/binSize; 
+
+    // binSize = std::max(static_cast<double>(std::ceil(cutoff * 0.5)), 1.0);
+    binSize = std::max(static_cast<int>(std::ceil(cutoff * 0.5)), 1);
+    binCountX = std::ceil(size / binSize);
+    binCountY = std::ceil(size / binSize);
+    // Adjust bin counts if necessary to ensure all particles are covered
+    if (binCountX * binSize < size) {
+        binCountX++;
+    }
+    if (binCountY * binSize < size) {
+        binCountY++;
+    }
+    bins.resize(binCountX, std::vector<ListNode*>(binCountY, nullptr));
 }
 
-void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int rank, int num_procs){
-    // Clear bins 
+// Assign particles to bins
+void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
+    // Clear bins
     for (auto& row : bins) {
         for (ListNode* node : row) {
             delete node; // Delete existing nodes
+            // node = nullptr;
         }
         row.clear(); // Clear row
     }
 
-    // Determine the range of rows assigned to this MPI process 
-    int rows_per_proc = numRows / num_procs;
-    int start_row = rank * rows_per_proc;
-    int end_row = (rank == num_procs - 1) ? numRows : ((rank + 1) * rows_per_proc);
+    // double check off by one --> rank = 0 already doing something
 
-    // Assign particles to bins locally
-    for (int i = 0; i < num_parts; i++) {
-        // Check if particle is within simulation domain and assigned rows
-        if (parts[i].x >= 0 && parts[i].x <= size && parts[i].y >= 0 && parts[i].y <= size &&
-            parts[i].y / binSize >= start_row && parts[i].y / binSize < end_row) {
-            int x = parts[i].x / binSize;
-            int y = parts[i].y / binSize;
-            // Check if particle is within the valid bin range
-            if (x >= 0 && x < binCountX && y >= 0 && y < binCountY) {
-                int binIndex = x * binCountY + y;
-                ListNode* node = new ListNode(i);
-                // Create a vector if the bin is empty
-                if (bins[binIndex].empty()) {
-                    bins[binIndex].emplace_back(node);
-                } else {
-                    // Append to the existing vector
-                    bins[binIndex].back()->next = node;
-                }
-            }
-        }
+    // Assign particles to bins
+    int start = rank * num_parts / num_procs;
+    int end = (rank + 1) * num_parts / num_procs;
+    for (int i = start; i < end; ++i) {
+        // int binX = std::min(static_cast<int>(parts[i].x / binSize), binCountX - 1); // Clip binX to valid range
+        // int binY = std::min(static_cast<int>(parts[i].y / binSize), binCountY - 1); // Clip binY to valid range
+        // binX = std::max(binX, 0); // Ensure binX is not negative
+        // binY = std::max(binY, 0); // Ensure binY is not negative
+        // bins[binX][binY] = new ListNode(i); // Assign a new node to the bin
+        int binX = parts[i].x / binSize;
+        int binY = parts[i].y / binSize;
+        // if division is incorrect manually add a bin?
+        // MPI
+        bins[binX][binY] = new ListNode(i); // Assign a new node to the bin
     }
-
-    // // Exchange ghost particles with neighboring processes
-    // int left_proc = (rank == 0) ? MPI_PROC_NULL : rank - 1;
-    // int right_proc = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
-
-    // // Non-blocking communication for exchanging ghost particles
-    // MPI_Request reqs[4];
-    // MPI_Status stats[4];
-    // MPI_Isend(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[0]);
-    // MPI_Isend(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[1]);
-    // MPI_Irecv(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[2]);
-    // MPI_Irecv(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[3]);
-    // MPI_Waitall(4, reqs, stats);
 }
-
 
 void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
     // Re-assign particles to bins to account for movement
@@ -124,6 +122,8 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     // check openmp code and add MPI_Barrier
 
     // Compute forces with binning
+    int start = rank * num_parts / num_procs;
+    int end = (rank + 1) * num_parts / num_procs;
     for (int i = start; i < end; ++i) {
         parts[i].ax = parts[i].ay = 0;
         int binX = parts[i].x / binSize;
@@ -149,9 +149,7 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     for (int i = start; i < end; ++i) {
         move(parts[i], size);
     }
-
 }
-
 
 void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
     // Gather all particles to root process (rank 0)
