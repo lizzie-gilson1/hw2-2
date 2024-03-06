@@ -11,7 +11,9 @@ struct ListNode {
 
 std::vector<std::vector<ListNode*>> bins;
 int binCountX, binCountY; // Number of bins in each dimension
-int binSize;
+double binSize = cutoff; 
+int totalSubRegions;
+int numRows, numCols;
 
 // Apply the force from neighbor to particle
 void apply_force(particle_t& particle, particle_t& neighbor) {
@@ -60,7 +62,7 @@ void init_simulation(particle_t* parts, int num_parts, double size, int rank, in
     binCountY = size/cutoff;
     bins.resize(binCountX*binCountY); 
 
-    totalSubRegions = size/num_procs; 
+    int totalSubRegions = size/num_procs; 
     numRows = totalSubRegions/binSize;
     numCols = size/binSize; 
 }
