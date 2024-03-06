@@ -55,39 +55,112 @@ void move(particle_t& p, double size) {
 }
 
 void init_simulation(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // Rectangular binning implementation based on the number of processors
+    // divide the space into bins of size cutoff-by-cutoff 
+    binCountX = size/cutoff;
+    binCountY = size/cutoff;
+    bins.resize(binCountX*binCountY); 
 
-    // split the whole region into small regions, and the number of smaller regions depends on the number of given threads. 
-    // Width -> Size of the region in the x direction
-    // Height -> Size/ the number of threads 
-    binSize = cutoff; 
-    
-
+    totalSubRegions = size/num_procs; 
+    numRows = totalSubRegions/binSize;
+    numCols = size/binSize; 
 }
 
-void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // Reset forces to zero for all particles
-    for (int i = 0; i < num_parts; i++) {
-        parts[i].ax = 0;
-        parts[i].ay = 0;
+void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int rank, int num_procs){
+    // Clear bins 
+    for (auto& row : bins) {
+        for (ListNode* node : row) {
+            delete node; // Delete existing nodes
+        }
+        row.clear(); // Clear row
     }
 
-    // Apply forces between all pairs of particles
+    // Determine the range of rows assigned to this MPI process 
+    int rows_per_proc = numRows/num_procs;
+    int start_row = rank*rows_per_proc;
+    int end_row = (rank == num_procs -1) ? numRows : ((rank + 1) * rows_per_proc);
+
+    // Assign particles to bins locally
     for (int i = 0; i < num_parts; i++) {
-        for (int j = 0; j < num_parts; j++) {
-            if (i != j) { // Avoid self-interaction
-                apply_force(parts[i], parts[j]);
+        // Check if particle is within simulation domain and assigned rows
+        if (parts[i].x >= 0 && parts[i].x <= size && parts[i].y >= 0 && parts[i].y <= size &&
+            parts[i].y / binSize >= start_row && parts[i].y / binSize < end_row) {
+            int x = parts[i].x / binSize;
+            int y = parts[i].y / binSize;
+            // Check if particle is within the valid bin range
+            if (x >= 0 && x < binCountX && y >= 0 && y < binCountY) {
+                int binIndex = x * binCountY + y;
+                ListNode* node = new ListNode(i);
+                node->next = bins[binIndex];
+                bins[binIndex] = node;
             }
         }
     }
 
-    // Move particles based on the calculated forces
-    for (int i = 0; i < num_parts; i++) {
+    // Exchange ghost particles with neighboring processes
+    int left_proc = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int right_proc = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
+
+    // Non-blocking communication for exchanging ghost particles
+    MPI_Request reqs[4];
+    MPI_Status stats[4];
+    MPI_Isend(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[0]);
+    MPI_Isend(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[1]);
+    MPI_Irecv(bins.back().data(), bins.back().size(), MPI_INT, right_proc, 0, MPI_COMM_WORLD, &reqs[2]);
+    MPI_Irecv(bins.front().data(), bins.front().size(), MPI_INT, left_proc, 0, MPI_COMM_WORLD, &reqs[3]);
+    MPI_Waitall(4, reqs, stats);
+}
+
+
+void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
+    // Re-assign particles to bins to account for movement
+    assign_particles_to_bins(parts, num_parts, size, rank, num_procs);
+    // check openmp code and add MPI_Barrier
+
+    // Compute forces with binning
+    int start = rank * num_parts / num_procs;
+    int end = (rank + 1) * num_parts / num_procs;
+    for (int i = start; i < end; ++i) {
+        parts[i].ax = parts[i].ay = 0;
+        int binX = parts[i].x / binSize;
+        int binY = parts[i].y / binSize;
+
+        // Iterate through neighboring bins
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                int newX = binX + dx, newY = binY + dy;
+                if (newX >= 0 && newX < binCountX && newY >= 0 && newY < binCountY) {
+                    ListNode* node = bins[newX][newY]; // Get the head of the linked list
+                    while (node != nullptr) {
+                        // add MPI stuff here
+                        apply_force(parts[i], parts[node->index]);
+                        node = node->next;
+                    }
+                }
+            }
+        }
+    }
+
+    // Move particles
+    for (int i = start; i < end; ++i) {
         move(parts[i], size);
     }
 
 }
 
 void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // some code here 
+    // Gather all particles to root process (rank 0)
+    particle_t* all_particles = nullptr;
+    if (rank == 0) {
+        all_particles = new particle_t[num_parts * num_procs];
+    }
+
+    MPI_Gather(parts, num_parts, PARTICLE, all_particles, num_parts, PARTICLE, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        // Now all_particles array contains all particles from all processes
+        // You can process or save them as needed
+        // Remember to free the memory allocated for all_particles
+        // save(fsave, all_particles, num_parts * num_procs, size); // Implement this function as needed
+        delete[] all_particles;
+    }
 }
