@@ -3,6 +3,16 @@
 #include <cmath>
 #include <vector>
 
+struct ListNode {
+    int index;
+    ListNode* next;
+    ListNode(int idx) : index(idx), next(nullptr) {}
+};
+
+std::vector<std::vector<ListNode*>> bins;
+int binCountX, binCountY; // Number of bins in each dimension
+int binSize;
+
 // Apply the force from neighbor to particle
 void apply_force(particle_t& particle, particle_t& neighbor) {
     // Calculate Distance
@@ -45,9 +55,14 @@ void move(particle_t& p, double size) {
 }
 
 void init_simulation(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // You can use this space to initialize data objects that you may need
-    // This function will be called once before the algorithm begins
-    // Do not do any particle simulation here
+    // Rectangular binning implementation based on the number of processors
+
+    // split the whole region into small regions, and the number of smaller regions depends on the number of given threads. 
+    // Width -> Size of the region in the x direction
+    // Height -> Size/ the number of threads 
+    binSize = cutoff; 
+    
+
 }
 
 void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
@@ -70,7 +85,7 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     for (int i = 0; i < num_parts; i++) {
         move(parts[i], size);
     }
-    
+
 }
 
 void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
