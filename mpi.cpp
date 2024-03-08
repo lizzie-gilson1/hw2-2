@@ -7,6 +7,9 @@
 #include <vector>
 #include <list>
 
+std::list<particle_t> ghost_parts; 
+std::list<particle_t> actual_parts;
+
 // Apply the force from neighbor to particle
 void apply_force(particle_t& particle, particle_t& neighbor) {
     // Calculate Distance
@@ -49,100 +52,102 @@ void move(particle_t& p, double size) {
 }
 
 // Function to send the out particles to the right neighbor
-// void send_out_particles(std::vector<particle_t>& parts, int num_parts, int rank_begin, int rank_end, double size) {
-//     // total number of particles to send
-//     int num_send = 0;
-//     for (int i = 0; i < num_parts; i++) {
-//         if (parts[i].x > size / rank_end) {
-//             num_send++;
-//         }
-//     }
+void send_out_particles(std::list<particle_t>& parts, int num_parts, int rank_begin, int rank_end) {
+    // total number of particles to send
+    int num_send = 0;
+    for (int i = 0; i < num_parts; i++) {
+        if (parts[i].x > size / rank_end) {
+            num_send++;
+        }
+    }
 
-//     // Send the number of particles to the right neighbor
-//     MPI_Send(&num_send, 1, MPI_INT, rank_end, 0, MPI_COMM_WORLD);
+    // Send the number of particles to the right neighbor
+    MPI_Send(&num_send, 1, MPI_INT, rank_end, 0, MPI_COMM_WORLD);
 
-//     // Send the particles to the right neighbor
-//     for (int i = 0; i < num_parts; i++) {
-//         if (parts[i].x > size / rank_end) {
-//             MPI_Send(&parts[i], 1, PARTICLE, rank_end, 0, MPI_COMM_WORLD);
-//         }
-//     }
-// }
+    // Send the particles to the right neighbor
+    for (int i = 0; i < num_parts; i++) {
+        if (parts[i].x > size / rank_end) {
+            MPI_Send(&parts[i], 1, PARTICLE, rank_end, 0, MPI_COMM_WORLD);
+        }
+    }
+}
 
 // Function to receive the in particles from the left neighbor
-// void receive_in_particles(std::vector<particle_t>& parts, int num_parts, int rank_begin, int rank_end, double size) {
-//     // Receive the number of particles from the left neighbor
-//     int num_recv;
-//     MPI_Recv(&num_recv, 1, MPI_INT, rank_begin, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+void receive_in_particles(std::list<particle_t>& parts, int num_parts, int rank_begin) {
+    // Receive the number of particles from the left neighbor
+    int num_recv;
+    MPI_Recv(&num_recv, 1, MPI_INT, rank_begin, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-//     // Receive the particles from the left neighbor
-//     for (int i = 0; i < num_recv; i++) {
-//         particle_t p;
-//         MPI_Recv(&p, 1, PARTICLE, rank_begin, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-//         parts.push_back(p);
-//     }
-// }
+    // Receive the particles from the left neighbor
+    for (int i = 0; i < num_recv; i++) {
+        particle_t p;
+        MPI_Recv(&p, 1, PARTICLE, rank_begin, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        parts.push_back(p);
+    }
+}
 
 void init_simulation(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
 
     // Create bins such that each bin is a row and the number of bins is equal to the number of processors
-    std::vector<std::list<particle_t>> bins;
-    bins.resize(num_procs);
-    for (int i = 0; i < num_parts; i++) {
-        int bin_x = parts[i].x / (size / num_procs);
-        if (bin_x == num_procs) {
-            bin_x--;
+    std::vector<std::list<particle_t>> near_bounds;
+    near_bounds.resize(num_procs);
+    double width = size / num_procs;
+
+    // Distribute particles to the current bin based on their x position
+    // Collect particles that we will send to the right neighbor
+    if (rank == 0){
+        // Collect particles that we will send to the right neighbor
+        std::vector<std::list<particle_t>> send_parts;
+        send_parts.resize(num_procs);
+        // clear the particles forces 
+        for (int i = 0; i < num_parts; i++) {
+            parts[i].ax = parts[i].ay = 0;
+            // Distribute particles to the current bin based on their y position 
+            int processor = parts[i].y / width;
+            send_parts[processor].push_back(parts[i]);
+            // Check to see if the bin that particle belongs to is the same as the processor's rank. If it is, add the particle to the bin
+            if (processor == rank) {
+                actual_parts.push_back(parts[i]);
+            }
+            //Check to see if the particle is within the cutoff distance from the boundary of the neighboring bin and the current bin
+            if (processor == rank - 1 && abs(parts[i].y - processor * width) <= cutoff) {
+               ghost_parts.push_back(parts[i]); 
+            }
+            if (processor == rank + 1 && abs(parts[i].y - (processor + 1) * width) <= cutoff) {
+                ghost_parts.push_back(parts[i]);
+            }
+            // collect ghost particles that we will send to the right neighbor
+            // check to see if the proessor is greater or equal to 1 and if the particle is within a certain cutoff distance from the top of its current bin 
+            if (processor - 1 >= 0 && abs(parts[i].y - processor * width) <= cutoff) {
+                near_bounds[processor - 1].push_back(parts[i]);
+            }
+            // check to see if the proessor is less than the number of processors and if the particle is within a certain cutoff distance from the bottom of its current bin
+            if (processor + 1 < num_procs && abs(parts[i].y - (processor + 1) * width) <= cutoff) {
+                near_bounds[processor + 1].push_back(parts[i]);
+            }
         }
-        bins[bin_x].push_back(parts[i]);
+        // Send the particles to the right neighbor
+        for (int i = 1; i < num_procs; i++){
+            send_out_particles(send_parts[i], send_parts[i].size(), 0, i);
+        }
+    }
+    else {
+        // Receive the particles from the left neighbor
+        receive_in_particles(actual_parts, near_bounds[rank].size(), rank - 1);
+    }
+    if (rank == 0){
+        for(int i = 1; i <num_procs; i++){
+            send_out_particles(near_bounds[i], near_bounds[i].size(), 0, i);
+        }
+    }
+    else {
+        receive_in_particles(ghost_parts, near_bounds[rank].size(), rank - 1);
     }
 }
 
-// Assign particles to bins
-// void assign_particles_to_bins(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-
-
-// }
-
 void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    // Clear the forces
-    for (int i = 0; i < num_parts; i++) {
-        parts[i].ax = parts[i].ay = 0;
-    }
-
-    // Apply forces
-    for (int i = 0; i < num_parts; i++) {
-        for (int j = 0; j < num_parts; j++) {
-            apply_force(parts[i], parts[j]);
-        }
-    }
-
-    // Move particles
-    for (int i = 0; i < num_parts; i++) {
-        move(parts[i], size);
-    }
-
-    // Send out particles to the right neighbor
-    // send_out_particles(parts, num_parts, rank, (rank + 1) % num_procs, size);
-
-    // Receive in particles from the left neighbor
-    // receive_in_particles(parts, num_parts, (rank + num_procs - 1) % num_procs, rank, size);
 }
 
 void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-    particle_t* all_particles = nullptr;
-    if (rank == 0) {
-        all_particles = new particle_t[num_parts * num_procs];
-    }
-
-    // Gather particles from all processes onto the root process
-    MPI_Gather(parts, num_parts, PARTICLE, all_particles, num_parts, PARTICLE, 0, MPI_COMM_WORLD);
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // // Broadcast gathered particles to all processes
-    // MPI_Bcast(all_particles, num_parts * num_procs, PARTICLE, 0, MPI_COMM_WORLD);
-
-    if (rank == 0) {
-        // Process or save gathered particles as needed
-        // Remember to free the allocated memory
-        delete[] all_particles;
-    }
+        // 
 }
