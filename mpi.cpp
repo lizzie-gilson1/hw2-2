@@ -128,5 +128,21 @@ void simulate_one_step(particle_t* parts, int num_parts, double size, int rank, 
     // receive_in_particles(parts, num_parts, (rank + num_procs - 1) % num_procs, rank, size);
 }
 
-// void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
-// }
+void gather_for_save(particle_t* parts, int num_parts, double size, int rank, int num_procs) {
+    particle_t* all_particles = nullptr;
+    if (rank == 0) {
+        all_particles = new particle_t[num_parts * num_procs];
+    }
+
+    // Gather particles from all processes onto the root process
+    MPI_Gather(parts, num_parts, PARTICLE, all_particles, num_parts, PARTICLE, 0, MPI_COMM_WORLD);
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // // Broadcast gathered particles to all processes
+    // MPI_Bcast(all_particles, num_parts * num_procs, PARTICLE, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        // Process or save gathered particles as needed
+        // Remember to free the allocated memory
+        delete[] all_particles;
+    }
+}
